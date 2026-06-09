@@ -1,0 +1,42 @@
+
+sequenceDiagram
+    participant M as DockerResourceMonitor
+    participant C as Config
+    participant CM as ContainerMapper
+    participant MC as MetricCollector
+    participant FC as FallbackCollector
+    participant VE as VisualizationEngine
+    participant HR as HeatmapRenderer
+    M->>C: load_from_file("config.toml")
+    M->>CM: __init__()
+    M->>MC: __init__(container_mapper=CM)
+    M->>VE: __init__()
+    M->>VE: start()
+    loop Main Loop
+        M->>MC: collect_metrics()
+        alt Direct Filesystem Access Successful
+            MC->>CM: get_container_for_pid(pid)
+            CM-->>MC: return container_info
+            MC->>MC: _collect_from_cgroup()
+            MC->>MC: _collect_io_wait()
+            MC-->>M: return metrics_dict
+        else Direct Access Fails
+            MC->>C: get_use_docker_api()
+            C-->>MC: return True
+            MC->>FC: collect_metrics()
+            FC->>FC: _parse_docker_stats()
+            FC-->>MC: return metrics_dict
+            MC->>C: set_warning_banner("Falling back to Docker API")
+        end
+        M->>VE: update(metrics_dict)
+        VE->>C: get_warning_banner()
+        C-->>VE: return banner_text
+        VE->>VE: _update_warning_banner()
+        VE->>HR: render(metrics_dict)
+        HR->>C: get_color_theme()
+        C-->>HR: return theme
+        HR-->>VE: return rich.table.Table
+        VE->>VE: Refresh Live Display
+        M->>M: sleep(refresh_interval)
+    end
+    M->>VE: stop()

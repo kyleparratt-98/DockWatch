@@ -1,0 +1,72 @@
+
+classDiagram
+    class DockerResourceMonitor {
+        -Config config
+        -ContainerMapper container_mapper
+        -MetricCollector metric_collector
+        -VisualizationEngine visualization_engine
+        +run() None
+        -_main_loop() None
+    }
+    class Config {
+        -int refresh_interval
+        -str color_theme
+        -list container_filter
+        -bool use_docker_api
+        -str warning_banner
+        +load_from_file(path: str) None
+        +get_refresh_interval() int
+        +get_color_theme() str
+        +get_container_filter() list
+        +get_use_docker_api() bool
+        +set_use_docker_api(value: bool) None
+        +get_warning_banner() str
+        +set_warning_banner(value: str) None
+    }
+    class ContainerMapper {
+        -dict pid_to_container_cache
+        -float last_refresh_time
+        -int cache_ttl
+        +get_container_for_pid(pid: int) dict
+        +refresh_cache() None
+        -_parse_cgroup(pid: int) dict
+        -_get_docker_id_from_cgroup(cgroup_path: str) str
+    }
+    class MetricCollector {
+        -ContainerMapper container_mapper
+        -FallbackCollector fallback_collector
+        -bool use_fallback
+        +collect_metrics() dict
+        -_collect_from_cgroup() dict
+        -_collect_io_wait() dict
+        -_get_cgroup_version() int
+    }
+    class FallbackCollector {
+        -docker.DockerClient docker_client
+        +collect_metrics() dict
+        -_parse_docker_stats() dict
+    }
+    class VisualizationEngine {
+        -rich.layout.Layout layout
+        -rich.live.Live live_display
+        -HeatmapRenderer heatmap_renderer
+        +update(data: dict) None
+        +start() None
+        +stop() None
+        -_create_layout() rich.layout.Layout
+        -_update_warning_banner() None
+    }
+    class HeatmapRenderer {
+        -Config config
+        +render(data: dict) rich.table.Table
+        -_get_color_for_value(metric: str, value: float) str
+        -_create_sparkline(values: list) rich.sparkline.Sparkline
+    }
+    DockerResourceMonitor --> Config
+    DockerResourceMonitor --> ContainerMapper
+    DockerResourceMonitor --> MetricCollector
+    DockerResourceMonitor --> VisualizationEngine
+    MetricCollector --> ContainerMapper
+    MetricCollector --> FallbackCollector
+    VisualizationEngine --> HeatmapRenderer
+    HeatmapRenderer --> Config
