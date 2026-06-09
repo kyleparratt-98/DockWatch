@@ -1,122 +1,143 @@
-# ⚡ Docker Resource Monitor ⚡
-<p align="center"><i>Real-time, color-coded container contention heatmaps for your terminal</i></p>
+<p align="center">
+  <img src="https://img.shields.io/badge/status-active-success?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/badge/stars-potential-gold?style=for-the-badge" alt="Stars">
+</p>
+
+<h1 align="center">⚡ DockWatch ⚡</h1>
+<p align="center"><i>Real-time Docker container resource contention heatmaps in your terminal</i></p>
 
 ---
 
 ## ✨ Why This Exists
 
-You've got 15 microservices running locally, one of them is thrashing CPU, another is leaking memory, and `docker stats` is just a wall of scrolling numbers that tell you nothing about *trends* or *severity*. Meanwhile, your dev environment feels like molasses and you have no idea which container is the culprit. **Docker Resource Monitor** scrapes `/sys/fs/cgroup` and `/proc` at the kernel level, maps every PID to its container, and renders a live, color-coded ASCII heatmap with sparkline trends — so you can spot resource contention at a glance, even when containers are ephemeral and PID recycling is rampant.
+You're running a swarm of containers on your dev machine or shared server. CPU throttling silently spikes, memory pressure builds, I/O waits balloon—and you're left guessing which container is the culprit. `docker stats` gives you raw numbers, ctop gives you a list, and Prometheus+Grafana requires a PhD in YAML. **DockWatch** scrapes `/sys/fs/cgroup` and `/proc` directly, extracts per-container CPU throttling counts, memory OOM scores, and I/O wait percentages, and paints them onto a real-time, color-coded ASCII heatmap grid with sparkline trends—all in your terminal. No setup. No web dashboard. Just instant, visceral insight into resource contention.
 
 ## 🎯 Features
 
-- **Live Heatmap Grid** — Color-coded cells (green → yellow → red) for CPU throttling, memory OOM scores, and I/O wait percentages per container
-- **Sparkline Trends** — Embedded mini line charts showing metric history over the last N data points
-- **Ephemeral Container Handling** — Automatically detects PID recycling and refreshes container mappings every 5 seconds
-- **Dual cgroup Support** — Works with both cgroup v1 and v2, automatically detecting the correct filesystem paths
-- **Graceful Degradation** — Falls back to `docker stats` API with a prominent warning banner when direct filesystem access fails
-- **Configurable via TOML** — Set refresh intervals, color themes, and container filters in a simple config file
-- **Rich Terminal UI** — Uses `rich` Layout, Panel, and Live widgets for a polished, professional display
+- **Real-time Heatmap Grid**: Every container gets a row; CPU, Memory, and I/O metrics are color-coded cells (green→yellow→red) for instant bottleneck identification
+- **Sparkline Trends**: Each cell includes a mini sparkline showing the last N data points, so you see direction not just snapshots
+- **Cgroup v1/v2 Auto-Detection**: Works out of the box on both legacy and unified cgroup hierarchies without manual configuration
+- **Ephemeral Container Handling**: PID recycling and container restarts are handled transparently with automatic cache invalidation
+- **Graceful Fallback**: If filesystem access fails (permissions, missing paths), falls back to `docker stats` API with a clear warning banner
+- **Rich Terminal UI**: Built with `rich` library's Layout, Panel, and Live widgets for a polished, full-screen real-time display
+- **TOML Configuration**: Customize refresh interval, color themes, and container filters via `config.toml`
+- **Lightweight**: Pure Python with minimal dependencies—no daemons, no web servers, no database
 
 ## 📦 Installation
 
 ### Prerequisites
 
 - Python 3.8+
-- Docker (for fallback mode)
-- Access to `/sys/fs/cgroup` and `/proc` (Linux only; macOS via Docker Desktop requires fallback mode)
+- Docker Engine (running containers to monitor)
+- Read access to `/sys/fs/cgroup` and `/proc` (default on most systems)
 
 ### Quick Install
 
 ```bash
-pip install docker-resource-monitor
+pip install dockwatch
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/docker_resource_monitor.git
-cd docker_resource_monitor
+git clone https://github.com/yourusername/dockwatch.git
+cd dockwatch
 pip install -e .
 ```
 
 ## 🚀 Quick Start
 
 ```bash
-# Run with default settings - watch your containers live!
-docker-resource-monitor
+# Monitor all running containers with default settings
+dockwatch
 ```
+
+Press `Ctrl+C` to exit.
 
 ## 📖 Usage
 
 ```bash
-# Run with a custom refresh interval (seconds)
-docker-resource-monitor --refresh 3
+# Monitor with a 1-second refresh interval
+dockwatch --refresh-interval 1
 
-# Specify a configuration file
-docker-resource-monitor --config ~/.docker-monitor/config.toml
-
-# Force Docker API fallback mode (bypass direct filesystem access)
-docker-resource-monitor --use-docker-api
+# Use the 'dark' color theme
+dockwatch --color-theme dark
 
 # Filter to specific containers by name or ID prefix
-docker-resource-monitor --filter my-service,redis
+dockwatch --filter my-app,redis
+
+# Load configuration from a custom TOML file
+dockwatch --config /path/to/config.toml
+
+# Force fallback to Docker API (bypass filesystem scraping)
+dockwatch --use-docker-api
 ```
+
+**Keyboard shortcuts:**
+- `q` or `Ctrl+C`: Quit
+- `r`: Force refresh container list
 
 ## 🏗️ Architecture
 
-The tool is organized into four core modules, each with a single responsibility:
+DockWatch is structured around four core modules:
 
-- **`container/mapper.py`** — Parses `/proc/<pid>/cgroup` and mountinfo to build a PID-to-container-ID mapping. Handles PID recycling via a TTL-based cache (default 5s) and supports both cgroup v1 and v2 paths.
-- **`metrics/collector.py`** — The primary metric scraper. Reads CPU throttling from `cpu.stat`, memory OOM scores from `memory.current`/`memory.stat`, and I/O pressure from `io.stat` (v2) or `blkio.throttle.io_service_bytes` (v1). If direct access fails, delegates to the fallback collector.
-- **`metrics/fallback.py`** — Uses the `docker` Python SDK to call `docker stats` when filesystem access is unavailable. Returns metrics in the same format as the direct collector for seamless swapping.
-- **`visualization/ui.py`** — Orchestrates the `rich` Live display with a `Layout` split into a warning banner `Panel` and a main heatmap `Table`. The `HeatmapRenderer` applies color thresholds and embeds `rich.sparkline.Sparkline` objects in each cell.
+- **`container/mapper.py`**: Parses `/proc/<pid>/cgroup` and `/proc/<pid>/mountinfo` to map PIDs to Docker container IDs. Maintains a TTL-based cache to handle PID recycling and ephemeral containers. Supports both cgroup v1 and v2 path formats.
+
+- **`metrics/collector.py`**: The primary metric scraper. Attempts to read CPU throttling (`cpu.stat`), memory pressure (`memory.current`, `memory.events`), and I/O pressure (`io.stat`) from cgroup v2 paths, falling back to v1 paths (`cpuacct`, `memory`, `blkio`). If filesystem access fails, delegates to the fallback collector.
+
+- **`metrics/fallback.py`**: Uses the Docker Engine SDK (`docker-py`) to call `docker stats` as a fallback. Provides the same metric schema but sourced from the Docker API instead of the kernel's cgroup filesystem.
+
+- **`visualization/`**: Contains `ui.py` (sets up `rich.Layout` with a top warning banner and main live area) and `heatmap.py` (renders the color-coded grid with sparklines via `rich.table.Table` and `rich.sparkline.Sparkline`).
+
+The main loop in `main.py` orchestrates: refresh container mapping → collect metrics (with fallback) → update visualization → sleep for refresh interval → repeat.
 
 ## 📚 API Reference
 
-### `ContainerMapper`
+### `Config` (config.py)
+
+| Method / Attribute | Description |
+|---|---|
+| `load_from_file(path: str) -> None` | Load TOML configuration from file. Validates all values. |
+| `refresh_interval: int` | Seconds between metric collection cycles (default: 2) |
+| `color_theme: str` | One of `default`, `dark`, `light`, `monochrome` |
+| `container_filter: List[str]` | List of container name/ID prefixes to monitor (empty = all) |
+| `use_docker_api: bool` | Force fallback to Docker API |
+| `warning_banner: str` | Set automatically when fallback is active |
+
+### `ContainerMapper` (container/mapper.py)
 
 | Method | Description |
-|--------|-------------|
-| `get_container_for_pid(pid)` | Returns container info dict for a PID, or `None` |
-| `refresh_cache()` | Forces a full cache refresh across all `/proc` entries |
-| `get_all_containers()` | Returns a dict of `{container_id: container_info}` |
-| `get_cache_stats()` | Returns cache size, unique containers, age, and staleness |
+|---|---|
+| `get_container_for_pid(pid: int) -> Optional[Dict]` | Look up container info for a PID. Returns `{container_id, container_name, cgroup_path, pid}` or `None`. |
+| `refresh_cache() -> None` | Force refresh of PID-to-container mapping. |
+| `get_all_containers() -> Dict[str, Dict]` | Return all currently mapped containers by container ID. |
+| `get_cache_stats() -> Dict` | Return cache size, unique container count, age, and staleness status. |
 
-### `MetricCollector`
-
-| Method | Description |
-|--------|-------------|
-| `collect_metrics()` | Returns a dict of `{container_id: {cpu_throttling, memory_oom, io_wait, sparklines}}` |
-
-### `Config`
+### `MetricCollector` (metrics/collector.py)
 
 | Method | Description |
-|--------|-------------|
-| `load_from_file(path)` | Loads and validates a TOML config file |
-| `get_refresh_interval()` | Returns the refresh interval in seconds |
-| `get_color_theme()` | Returns the active color theme name |
-| `set_use_docker_api(value)` | Toggles fallback mode |
-| `set_warning_banner(text)` | Sets the warning banner text |
+|---|---|
+| `collect_metrics() -> Dict[str, Dict]` | Collect metrics for all discovered containers. Returns dict keyed by container ID with CPU throttling count, memory OOM score, I/O wait %, and sparkline data. |
 
-### `VisualizationEngine`
+### `VisualizationEngine` (visualization/ui.py)
 
 | Method | Description |
-|--------|-------------|
-| `start()` | Begins the live rich display |
-| `update(metrics_dict)` | Renders new data into the heatmap grid |
-| `stop()` | Stops the live display cleanly |
+|---|---|
+| `start() -> None` | Initialize rich Layout and enter live display mode. |
+| `update(data: Dict) -> None` | Update the display with new metric data. |
+| `stop() -> None` | Cleanly exit live display and restore terminal. |
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+Contributions are welcome! Please check out our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+
 - Setting up a development environment
-- Running tests
+- Running tests (`pytest`)
+- Code style (Black + isort)
 - Submitting pull requests
 
-We especially appreciate contributions around:
-- Additional color themes
-- Support for more container runtimes (Podman, containerd)
-- Performance optimizations for large-scale deployments
+**Bug reports and feature requests** are encouraged—open an issue on GitHub.
 
 ## 📄 License
 
